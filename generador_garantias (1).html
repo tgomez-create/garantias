@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Generador de Garantías</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --blue-800: #0C447C; --blue-600: #185FA5; --blue-100: #B5D4F4; --blue-50: #E6F1FB;
+    --amber-50: #FAEEDA; --amber-100: #FAC775;
+    --red-50: #FCEBEB; --red-400: #E24B4A; --red-700: #A32D2D;
+    --green: #1D9E75; --green-bg: #EAF3DE;
+    --text: #1a1a1a; --muted: #666; --border: #dde1e7; --bg2: #F7F8FA;
+  }
+  body { font-family: Arial, Helvetica, sans-serif; background: #eef1f5; min-height: 100vh; padding: 24px 16px; color: var(--text); }
+
+  .app { max-width: 1100px; margin: 0 auto; display: grid; grid-template-columns: 340px 1fr; gap: 20px; align-items: start; }
+  @media(max-width:800px){ .app { grid-template-columns: 1fr; } }
+
+  .panel { background: #fff; border-radius: 12px; border: 1px solid var(--border); overflow: hidden; position: sticky; top: 16px; max-height: calc(100vh - 32px); display: flex; flex-direction: column; }
+  .panel-header { background: var(--blue-800); padding: 18px 20px; flex-shrink: 0; }
+  .panel-header h2 { color: #fff; font-size: 15px; font-weight: bold; margin-bottom: 2px; }
+  .panel-header p { color: var(--blue-100); font-size: 11px; }
+  .panel-body { padding: 16px 20px; overflow-y: auto; flex: 1; }
+
+  .step-label { font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+  .step-num { width: 18px; height: 18px; border-radius: 50%; background: var(--blue-800); color: #fff; font-size: 9px; font-weight: bold; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .step-num.done { background: var(--green); }
+
+  .excel-zone { border: 2px dashed var(--border); border-radius: 8px; padding: 14px 12px; text-align: center; cursor: pointer; transition: all 0.2s; margin-bottom: 16px; background: var(--bg2); display: block; }
+  .excel-zone:hover { border-color: var(--blue-600); background: var(--blue-50); }
+  .excel-zone input[type=file] { display: none; }
+  .ez-icon { font-size: 22px; margin-bottom: 4px; }
+  .ez-title { font-size: 13px; font-weight: bold; color: var(--blue-800); }
+  .ez-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .excel-zone.ok { border-color: var(--green); background: var(--green-bg); }
+  .excel-zone.ok .ez-title { color: var(--green); }
+
+  .search-box { display: flex; gap: 8px; margin-bottom: 6px; }
+  .search-box input { flex: 1; padding: 9px 12px; font-size: 14px; font-weight: bold; border: 2px solid var(--border); border-radius: 8px; outline: none; font-family: Courier, monospace; letter-spacing: 1px; transition: border-color 0.15s; }
+  .search-box input:focus { border-color: var(--blue-600); }
+  .search-box input.found { border-color: var(--green); background: var(--green-bg); }
+  .search-box input.notfound { border-color: var(--red-400); background: var(--red-50); }
+  .btn-buscar { padding: 9px 16px; background: var(--blue-800); color: #fff; border: none; border-radius: 8px; font-size: 13px; font-weight: bold; cursor: pointer; white-space: nowrap; transition: background 0.15s; }
+  .btn-buscar:hover { background: var(--blue-600); }
+  .search-msg { font-size: 11px; margin-bottom: 14px; min-height: 16px; }
+  .search-msg.ok  { color: var(--green); }
+  .search-msg.err { color: var(--red-700); }
+
+  .divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
+  .field-group { margin-bottom: 10px; }
+  .field-group label { display: block; font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 3px; }
+  .field-group input, .field-group textarea { width: 100%; padding: 7px 10px; font-size: 12px; border: 1px solid var(--border); border-radius: 6px; color: var(--text); background: #fff; font-family: Arial, Helvetica, sans-serif; outline: none; transition: border-color 0.15s; }
+  .field-group input:focus, .field-group textarea:focus { border-color: var(--blue-600); }
+  .field-group textarea { resize: vertical; min-height: 60px; line-height: 1.5; }
+  .field-group input.auto-filled { background: #F0FBF6; border-color: #8DDAB8; }
+
+  .btn-gen { width: 100%; padding: 11px; background: var(--blue-800); color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer; transition: background 0.15s; margin-top: 6px; }
+  .btn-gen:hover { background: var(--blue-600); }
+  .btn-limpiar { width: 100%; padding: 7px; background: transparent; color: var(--muted); border: 1px solid var(--border); border-radius: 8px; font-size: 12px; cursor: pointer; margin-top: 6px; }
+  .btn-limpiar:hover { background: var(--bg2); }
+
+  /* PREVIEW */
+  .preview-wrap { background: #fff; border-radius: 12px; border: 1px solid var(--border); overflow: hidden; }
+  .preview-topbar { display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; border-bottom: 1px solid var(--border); background: var(--bg2); flex-wrap: wrap; gap: 8px; }
+  .preview-topbar span { font-size: 12px; font-weight: bold; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+  .topbar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn-action { padding: 7px 14px; color: #fff; border: none; border-radius: 6px; font-size: 12px; font-weight: bold; cursor: pointer; transition: background 0.15s; }
+  .btn-copy { background: var(--blue-800); }
+  .btn-copy:hover { background: var(--blue-600); }
+  .btn-copy.copied { background: var(--green); }
+  .btn-gmail { background: #D44638; display: flex; align-items: center; gap: 6px; }
+  .btn-gmail:hover { background: #b5382e; }
+  .btn-gmail.connected { background: var(--green); }
+  .btn-drafts { background: #1D9E75; }
+  .btn-drafts:hover { background: #177a5c; }
+  .btn-drafts:disabled { background: #aaa; cursor: not-allowed; }
+
+  #preview-area { padding: 20px; }
+  .placeholder { color: #aaa; font-size: 13px; text-align: center; padding: 50px 20px; line-height: 1.9; }
+
+  /* GMAIL STATUS */
+  .gmail-bar { background: var(--bg2); border-bottom: 1px solid var(--border); padding: 10px 20px; display: flex; align-items: center; gap: 10px; font-size: 12px; }
+  .gmail-bar.hidden { display: none; }
+  .gmail-dot { width: 8px; height: 8px; border-radius: 50%; background: #ccc; flex-shrink: 0; }
+  .gmail-dot.connected { background: var(--green); }
+  .gmail-dot.error { background: var(--red-400); }
+
+  /* PROGRESS */
+  .progress-bar { display: none; padding: 12px 20px; background: var(--blue-50); border-bottom: 1px solid var(--blue-100); }
+  .progress-bar.show { display: block; }
+  .progress-track { background: var(--border); border-radius: 4px; height: 6px; margin-top: 6px; }
+  .progress-fill { background: var(--blue-600); height: 6px; border-radius: 4px; transition: width 0.3s; }
+  .progress-text { font-size: 11px; color: var(--blue-800); font-weight: bold; }
+
+  /* EMAIL preview styles */
+  .em-card { border-radius: 12px; overflow: hidden; border: 1px solid #dde1e7; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- PANEL IZQUIERDO -->
+  <div class="panel">
+    <div class="panel-header">
+      <h2>Generador de Garantías</h2>
+      <p>Excel → Gmail Borradores automáticos</p>
+    </div>
+    <div class="panel-body">
+
+      <!-- PASO 1: Excel -->
+      <div class="step-label"><span class="step-num" id="sn1">1</span> Cargar Excel maestro</div>
+      <label class="excel-zone" id="excel-zone">
+        <input type="file" id="excel-input" accept=".xlsx,.xls">
+        <div class="ez-icon">📂</div>
+        <div class="ez-title">Seleccionar base_garantias.xlsx</div>
+        <div class="ez-sub">Columnas: NO. DE GARANTIA, TIENDA, CIUDAD…</div>
+      </label>
+
+      <!-- PASO 2: Buscar -->
+      <div class="step-label"><span class="step-num" id="sn2">2</span> Buscar por No. de garantía</div>
+      <div class="search-box">
+        <input type="text" id="buscar-input" placeholder="Ej: GC1899" oninput="this.value=this.value.toUpperCase()" onkeydown="if(event.key==='Enter')buscar()">
+        <button class="btn-buscar" onclick="buscar()">Buscar</button>
+      </div>
+      <div class="search-msg" id="search-msg"></div>
+
+      <!-- PASO 3: Campos -->
+      <div class="step-label"><span class="step-num" id="sn3">3</span> Revisar y ajustar</div>
+      <div class="field-group"><label>Destinatario</label><input type="text" id="f-destinatario" placeholder="Nombre de quien recibe"></div>
+      <div class="field-group"><label>Email destinatario</label><input type="email" id="f-email-dest" placeholder="correo@proveedor.com"></div>
+      <div class="field-group"><label>Contacto punto de venta</label><input type="text" id="f-pv-nombre" placeholder="Ej: Paola Arrieta"></div>
+      <div class="field-group"><label>Nombre punto de venta</label><input type="text" id="f-pv-tienda" placeholder="Ej: Puppis"></div>
+      <div class="field-group"><label>Fecha próximo seguimiento</label><input type="text" id="f-seguimiento" placeholder="Ej: 15/05/2026"></div>
+
+      <hr class="divider">
+      <div class="step-label" style="margin-bottom:4px;">Campos del Excel</div>
+      <div class="field-group"><label>No. Garantía</label><input type="text" id="f-num"></div>
+      <div class="field-group"><label>Tienda</label><input type="text" id="f-tienda"></div>
+      <div class="field-group"><label>Ciudad</label><input type="text" id="f-ciudad"></div>
+      <div class="field-group"><label>Tipo de reclamación</label><input type="text" id="f-reclamacion"></div>
+      <div class="field-group"><label>Tipo de garantía</label><input type="text" id="f-tipo"></div>
+      <div class="field-group"><label>Nombre del producto</label><input type="text" id="f-producto"></div>
+      <div class="field-group"><label>Código</label><input type="text" id="f-codigo"></div>
+      <div class="field-group"><label>EAN</label><input type="text" id="f-ean"></div>
+      <div class="field-group"><label>Marca</label><input type="text" id="f-marca"></div>
+      <div class="field-group"><label>Categoría</label><input type="text" id="f-categoria"></div>
+      <div class="field-group"><label>Proveedor</label><input type="text" id="f-proveedor"></div>
+      <div class="field-group"><label>Cantidad</label><input type="text" id="f-cantidad"></div>
+      <div class="field-group"><label>Lote</label><input type="text" id="f-lote"></div>
+      <div class="field-group"><label>Fecha fabricación</label><input type="text" id="f-fabricacion"></div>
+      <div class="field-group"><label>Fecha vencimiento</label><input type="text" id="f-vencimiento"></div>
+      <div class="field-group"><label>Contexto</label><textarea id="f-contexto"></textarea></div>
+      <div class="field-group"><label>Links / Evidencias</label><textarea id="f-links" placeholder="https://... (uno por línea)"></textarea></div>
+
+      <button class="btn-gen" onclick="generar()">⚡ Generar vista previa</button>
+      <button class="btn-limpiar" onclick="limpiar()">Limpiar formulario</button>
+    </div>
+  </div>
+
+  <!-- PREVIEW -->
+  <div class="preview-wrap">
+    <div class="gmail-bar" id="gmail-bar">
+      <div class="gmail-dot" id="gmail-dot"></div>
+      <span id="gmail-status-text">No conectado a Gmail</span>
+    </div>
+    <div class="preview-topbar">
+      <span>Vista previa</span>
+      <div class="topbar-actions">
+        <button class="btn-action btn-copy" id="btn-copy" onclick="copiar()">Copiar</button>
+        <button class="btn-action btn-gmail" id="btn-gmail" onclick="conectarGmail()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg>
+          Conectar Gmail
+        </button>
+        <button class="btn-action btn-drafts" id="btn-drafts" onclick="crearBorrador()" disabled>
+          📨 Crear borrador
+        </button>
+      </div>
+    </div>
+    <div class="progress-bar" id="progress-bar">
+      <div class="progress-text" id="progress-text">Creando borradores...</div>
+      <div class="progress-track"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
+    </div>
+    <div id="preview-area">
+      <p class="placeholder">
+        📂 <strong>Paso 1:</strong> Carga el archivo <em>base_garantias.xlsx</em><br>
+        🔍 <strong>Paso 2:</strong> Busca por número de garantía<br>
+        ⚡ <strong>Paso 3:</strong> Genera la vista previa<br>
+        📨 <strong>Paso 4:</strong> Conecta Gmail y crea el borrador
+      </p>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const CLIENT_ID = '432943163550-uuvpplklg3b2d42l82mh3qf49pemb974.apps.googleusercontent.com';
+const SCOPES = 'https://www.googleapis.com/auth/gmail.compose';
+
+let tokenClient;
+let accessToken = null;
+let baseDatos = [];
+let encabezados = [];
+let htmlCorreo = '';
+
+// ── MAPA Excel → campos ───────────────────────────────────────────────────────
+const MAPA = {
+  'NO. DE GARANTIA':'f-num','NO. DE GARANTÍA':'f-num',
+  'TIENDA':'f-tienda','CIUDAD':'f-ciudad',
+  'TIPO DE RECLAMACION':'f-reclamacion','TIPO DE RECLAMACIÓN':'f-reclamacion',
+  'TIPO DE GARANTIA':'f-tipo','TIPO DE GARANTÍA':'f-tipo',
+  'PROVEEDOR QUE PRESENTÓ LA GARANTÍA':'f-proveedor','PROVEEDOR QUE PRESENTO LA GARANTIA':'f-proveedor',
+  'CODIGO DE LA REFERENCIA':'f-codigo','CÓDIGO DE LA REFERENCIA':'f-codigo',
+  'EAN':'f-ean','NOMBRE DEL PRODUCTO':'f-producto',
+  'MARCA':'f-marca','CATEGORIA':'f-categoria','CATEGORÍA':'f-categoria',
+  'LOTE DEL PRODUCTO':'f-lote',
+  'FECHA DE FABRICACION DEL PRODUCTO':'f-fabricacion','FECHA DE FABRICACIÓN DEL PRODUCTO':'f-fabricacion',
+  'FECHA DE VENCIMIENTO DEL PRODUCTO':'f-vencimiento',
+  'CANTIDAD DE UNIDADES QUE PRESENTAN LA NOVEDAD':'f-cantidad',
+  'CONTEXTO':'f-contexto',
+  'DESTINATARIO':'f-destinatario',
+  'EMAIL DESTINATARIO':'f-email-dest',
+  'CONTACTO PUNTO DE VENTA':'f-pv-nombre',
+  'NOMBRE PUNTO DE VENTA':'f-pv-tienda',
+  'FECHA PROXIMO SEGUIMIENTO':'f-seguimiento','FECHA PRÓXIMO SEGUIMIENTO':'f-seguimiento',
+  'LINKS':'f-links','EVIDENCIAS':'f-links','LINKS / EVIDENCIAS':'f-links',
+};
+
+// ── CARGAR EXCEL ──────────────────────────────────────────────────────────────
+document.getElementById('excel-input').addEventListener('change', function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    try {
+      const wb = XLSX.read(ev.target.result, { type: 'binary', cellDates: false });
+      const sheetName = wb.SheetNames.find(n => n.toUpperCase().includes('BASE')) || wb.SheetNames[0];
+      const ws = wb.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      let headerRow = 0;
+      for (let i = 0; i < Math.min(5, rows.length); i++) {
+        if (rows[i].some(c => String(c).toUpperCase().includes('GARANTIA'))) { headerRow = i; break; }
+      }
+      encabezados = rows[headerRow].map(h => String(h).trim().toUpperCase());
+      baseDatos = [];
+      for (let r = headerRow + 1; r < rows.length; r++) {
+        if (rows[r].every(c => c === '' || c === null)) continue;
+        const obj = {};
+        encabezados.forEach((h, i) => { obj[h] = String(rows[r][i] || '').trim(); });
+        if (obj[encabezados[0]]) baseDatos.push(obj);
+      }
+      const zona = document.getElementById('excel-zone');
+      zona.classList.add('ok');
+      zona.querySelector('.ez-icon').textContent = '✅';
+      zona.querySelector('.ez-title').textContent = file.name;
+      zona.querySelector('.ez-sub').textContent = baseDatos.length + ' garantías cargadas';
+      document.getElementById('sn1').classList.add('done');
+    } catch(err) { alert('Error leyendo el archivo: ' + err.message); }
+  };
+  reader.readAsBinaryString(file);
+});
+
+// ── BUSCAR ────────────────────────────────────────────────────────────────────
+function buscar() {
+  const consecutivo = document.getElementById('buscar-input').value.trim().toUpperCase();
+  const msg = document.getElementById('search-msg');
+  const input = document.getElementById('buscar-input');
+  if (!baseDatos.length) { msg.textContent = '⚠ Primero carga el Excel.'; msg.className = 'search-msg err'; return; }
+  if (!consecutivo) { msg.textContent = 'Escribe el número de garantía.'; msg.className = 'search-msg err'; return; }
+  const colG = encabezados.find(h => h.includes('GARANTIA') || h.includes('GARANTÍA'));
+  const reg = baseDatos.find(r => (r[colG]||'').toUpperCase().replace(/\s/g,'') === consecutivo.replace(/\s/g,''));
+  if (!reg) { input.className = 'notfound'; msg.textContent = `No se encontró "${consecutivo}".`; msg.className = 'search-msg err'; return; }
+  limpiarCampos();
+  Object.keys(reg).forEach(col => {
+    const id = MAPA[col];
+    if (id && reg[col]) { const el = document.getElementById(id); if (el) { el.value = reg[col]; el.classList.add('auto-filled'); } }
+  });
+  input.className = 'found';
+  msg.textContent = `✅ ${consecutivo} cargada correctamente.`;
+  msg.className = 'search-msg ok';
+  document.getElementById('sn2').classList.add('done');
+  document.getElementById('sn3').classList.add('done');
+}
+
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+function g(id) { return (document.getElementById(id)?.value || '').trim(); }
+function iniciales(n) { return n.trim().split(' ').filter(Boolean).slice(0,2).map(p=>p[0].toUpperCase()).join(''); }
+function limpiarCampos() {
+  ['f-num','f-tienda','f-ciudad','f-reclamacion','f-tipo','f-producto','f-codigo','f-ean',
+   'f-marca','f-categoria','f-proveedor','f-cantidad','f-lote','f-fabricacion','f-vencimiento',
+   'f-contexto','f-links','f-destinatario','f-email-dest','f-pv-nombre','f-pv-tienda','f-seguimiento']
+   .forEach(id => { const el = document.getElementById(id); if(el){el.value='';el.classList.remove('auto-filled');} });
+}
+function limpiar() {
+  limpiarCampos();
+  document.getElementById('buscar-input').value = '';
+  document.getElementById('buscar-input').className = '';
+  document.getElementById('search-msg').textContent = '';
+  document.getElementById('preview-area').innerHTML = '<p class="placeholder">Busca una garantía para comenzar.</p>';
+  htmlCorreo = '';
+  document.getElementById('btn-drafts').disabled = true;
+}
+
+// ── CONSTRUIR HTML DEL CORREO ─────────────────────────────────────────────────
+function buildEmailHTML() {
+  const dest=g('f-destinatario'), num=g('f-num'), tienda=g('f-tienda'), ciudad=g('f-ciudad');
+  const reclamacion=g('f-reclamacion'), tipo=g('f-tipo'), producto=g('f-producto');
+  const codigo=g('f-codigo'), ean=g('f-ean'), marca=g('f-marca'), categoria=g('f-categoria');
+  const proveedor=g('f-proveedor'), cantidad=g('f-cantidad'), lote=g('f-lote');
+  const fab=g('f-fabricacion'), venc=g('f-vencimiento'), contexto=g('f-contexto');
+  const seguimiento=g('f-seguimiento'), pvNombre=g('f-pv-nombre'), pvTienda=g('f-pv-tienda');
+  const links=g('f-links');
+  const avDest=dest?iniciales(dest):'??', avPV=pvNombre?iniciales(pvNombre):'??';
+  const tipoCorto=(tipo||'—').replace(/GARANT[IÍ]A\s+POR\s+/i,'');
+
+  const linksHTML = links ? links.split('\n').filter(l=>l.trim()).map(l => {
+    const url = l.trim();
+    return `<tr><td style="padding:6px 0;"><a href="${url}" style="color:#185FA5;font-size:12px;word-break:break-all;">${url}</a></td></tr>`;
+  }).join('') : '';
+
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;background:#ffffff;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="font-family:Arial,Helvetica,sans-serif;background:#ffffff;">
+  <tr><td style="padding:16px;" align="center">
+  <table width="680" cellpadding="0" cellspacing="0" border="0" style="max-width:680px;width:100%;background:#ffffff;border:1px solid #dde1e7;border-radius:12px;overflow:hidden;">
+    <tr><td style="background-color:#0C447C;padding:24px 30px 20px;border-radius:12px 12px 0 0;">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr><td colspan="2"><p style="margin:0 0 8px;font-size:10px;font-weight:bold;letter-spacing:2px;text-transform:uppercase;color:#85B7EB;">SOLICITUD DE GARANTÍA</p></td></tr>
+        <tr>
+          <td valign="middle"><p style="margin:0;color:#ffffff;font-size:20px;font-weight:bold;line-height:1.2;">${tipo||'Tipo de garantía'}</p></td>
+          ${num?`<td style="text-align:right;vertical-align:middle;white-space:nowrap;padding-left:12px;"><span style="background:#E24B4A;color:#fff;font-size:12px;font-weight:bold;padding:5px 12px;border-radius:4px;">${num}</span></td>`:''}
+        </tr>
+      </table>
+    </td></tr>
+    <tr><td style="height:3px;background:linear-gradient(90deg,#FAC775,#EF9F27,#E24B4A);font-size:0;line-height:0;">&nbsp;</td></tr>
+    <tr><td style="padding:28px 30px;background:#ffffff;">
+      <p style="margin:0 0 16px;font-size:14px;color:#444444;line-height:1.6;">Buen día, <strong>${dest||'[Destinatario]'}</strong>. Por medio de este correo solicito la aplicación de garantía del siguiente producto:</p>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #dde1e7;border-left:3px solid #185FA5;border-radius:8px;margin-bottom:16px;">
+        <tr><td style="padding:14px 16px;">
+          <p style="margin:0 0 10px;font-size:14px;font-weight:bold;color:#1a1a1a;">${producto||'[Nombre del producto]'}</p>
+          <table cellpadding="0" cellspacing="0" border="0"><tr>
+            ${codigo?`<td style="padding-right:5px;"><span style="background:#E6F1FB;color:#0C447C;font-size:11px;padding:2px 8px;border-radius:4px;font-family:Courier,monospace;">Cód. ${codigo}</span></td>`:''}
+            ${marca?`<td style="padding-right:5px;"><span style="background:#FAEEDA;color:#633806;font-size:11px;padding:2px 8px;border-radius:4px;font-family:Courier,monospace;">${marca}</span></td>`:''}
+            ${categoria?`<td style="padding-right:5px;"><span style="background:#F1EFE8;color:#5a5a5a;font-size:11px;padding:2px 8px;border-radius:4px;border:1px solid #D3D1C7;font-family:Courier,monospace;">${categoria}</span></td>`:''}
+            ${cantidad?`<td><span style="background:#F1EFE8;color:#5a5a5a;font-size:11px;padding:2px 8px;border-radius:4px;border:1px solid #D3D1C7;font-family:Courier,monospace;">${cantidad} unidad</span></td>`:''}
+          </tr></table>
+        </td></tr>
+      </table>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #dde1e7;border-radius:8px;margin-bottom:16px;font-size:12px;overflow:hidden;">
+        ${ean?`<tr><td style="padding:11px 16px;color:#888888;width:42%;border-bottom:1px solid #dde1e7;background:#F7F8FA;">EAN</td><td style="padding:11px 16px;font-weight:bold;color:#185FA5;font-family:Courier,monospace;border-bottom:1px solid #dde1e7;">${ean}</td></tr>`:''}
+        <tr><td style="padding:11px 16px;color:#888888;border-bottom:1px solid #dde1e7;">Tienda</td><td style="padding:11px 16px;font-weight:bold;color:#1a1a1a;border-bottom:1px solid #dde1e7;">${tienda||'—'}${ciudad?' — '+ciudad:''}</td></tr>
+        <tr><td style="padding:11px 16px;color:#888888;border-bottom:1px solid #dde1e7;background:#F7F8FA;">Tipo de garantía</td><td style="padding:11px 16px;border-bottom:1px solid #dde1e7;"><span style="background:#FCEBEB;color:#A32D2D;font-size:11px;font-weight:bold;padding:2px 10px;border-radius:10px;">● ${tipoCorto}</span></td></tr>
+        <tr><td style="padding:11px 16px;color:#888888;border-bottom:1px solid #dde1e7;">Lote</td><td style="padding:11px 16px;font-weight:bold;color:#185FA5;font-family:Courier,monospace;border-bottom:1px solid #dde1e7;">${lote||'—'}</td></tr>
+        <tr><td style="padding:11px 16px;color:#888888;border-bottom:1px solid #dde1e7;background:#F7F8FA;">Fabricación / Vencimiento</td><td style="padding:11px 16px;font-weight:bold;color:#1a1a1a;border-bottom:1px solid #dde1e7;">${fab||'—'} / ${venc||'—'}</td></tr>
+        <tr><td style="padding:11px 16px;color:#888888;${contexto?'border-bottom:1px solid #dde1e7;':''}">Proveedor</td><td style="padding:11px 16px;font-weight:bold;color:#1a1a1a;${contexto?'border-bottom:1px solid #dde1e7;':''}">${proveedor||'—'}</td></tr>
+        ${contexto?`<tr><td style="padding:11px 16px;color:#888888;vertical-align:top;">Contexto de la novedad</td><td style="padding:11px 16px;color:#A32D2D;font-size:13px;line-height:1.65;">${contexto}</td></tr>`:''}
+      </table>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:16px;">
+        <tr>
+          <td width="48%" valign="top" style="background:#FAEEDA;border:1px solid #FAC775;border-radius:8px;padding:16px;">
+            <table cellpadding="0" cellspacing="0" border="0" style="margin-bottom:8px;width:100%;"><tr>
+              <td width="42" valign="middle" style="padding-right:8px;">
+                <table cellpadding="0" cellspacing="0" border="0" style="width:34px;height:34px;border-radius:50%;background:#FAC775;border:2px solid #EF9F27;"><tr><td style="text-align:center;vertical-align:middle;font-size:11px;font-weight:bold;color:#633806;font-family:Arial,sans-serif;">${avDest}</td></tr></table>
+              </td>
+              <td valign="middle">
+                <p style="margin:0 0 2px;font-size:11px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;color:#633806;">${dest||'Proveedor'}</p>
+                <p style="margin:0;font-size:9px;color:#BA7517;text-transform:uppercase;letter-spacing:1.5px;">Proveedor</p>
+              </td>
+            </tr></table>
+            <p style="margin:0;font-size:13px;color:#633806;line-height:1.6;">Responder con proceso a seguir.${seguimiento?'<br>Seguimiento: <strong>'+seguimiento+'</strong>':''}</p>
+          </td>
+          <td width="4%">&nbsp;</td>
+          <td width="48%" valign="top" style="background:#E6F1FB;border:1px solid #B5D4F4;border-radius:8px;padding:16px;">
+            <table cellpadding="0" cellspacing="0" border="0" style="margin-bottom:8px;width:100%;"><tr>
+              <td width="42" valign="middle" style="padding-right:8px;">
+                <table cellpadding="0" cellspacing="0" border="0" style="width:34px;height:34px;border-radius:50%;background:#B5D4F4;border:2px solid #85B7EB;"><tr><td style="text-align:center;vertical-align:middle;font-size:11px;font-weight:bold;color:#0C447C;font-family:Arial,sans-serif;">${avPV}</td></tr></table>
+              </td>
+              <td valign="middle">
+                <p style="margin:0 0 2px;font-size:11px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;color:#0C447C;">${pvNombre||'Punto de venta'}${pvTienda?' — '+pvTienda:''}</p>
+                <p style="margin:0;font-size:9px;color:#185FA5;text-transform:uppercase;letter-spacing:1.5px;">Punto de venta</p>
+              </td>
+            </tr></table>
+            <p style="margin:0;font-size:13px;color:#0C447C;line-height:1.6;">Toda solución (reposición, nota crédito o reparación) requiere <strong>acta de soporte</strong>.</p>
+          </td>
+        </tr>
+      </table>
+      ${linksHTML ? `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #dde1e7;border-radius:8px;margin-bottom:16px;padding:14px 16px;"><tr><td><p style="margin:0 0 8px;font-size:11px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;color:#888;">Evidencias adjuntas</p><table>${linksHTML}</table></td></tr></table>` : ''}
+      <p style="margin:0 0 10px;font-size:14px;color:#444444;line-height:1.7;">Se adjuntan evidencias del lote afectado. Agradezco proceder con la <strong>reparación o reposición</strong> a la mayor brevedad.</p>
+      <p style="margin:0;font-size:14px;color:#1a1a1a;font-weight:bold;">Saludos cordiales.</p>
+    </td></tr>
+    <tr><td style="background:#F7F8FA;border-top:1px solid #dde1e7;padding:12px 24px;text-align:center;border-radius:0 0 12px 12px;">
+      <p style="margin:0;font-size:11px;color:#aaaaaa;">Evidencias adjuntas &nbsp;·&nbsp; Tipo de reclamación: ${reclamacion||'Novedad punto de venta'} &nbsp;·&nbsp; EAN: ${ean||'—'}</p>
+    </td></tr>
+  </table>
+  </td></tr></table>
+  </body></html>`;
+}
+
+// ── GENERAR VISTA PREVIA ──────────────────────────────────────────────────────
+function generar() {
+  htmlCorreo = buildEmailHTML();
+  document.getElementById('preview-area').innerHTML = htmlCorreo;
+  if (accessToken) document.getElementById('btn-drafts').disabled = false;
+}
+
+// ── COPIAR ────────────────────────────────────────────────────────────────────
+function copiar() {
+  const el = document.getElementById('preview-area');
+  const range = document.createRange(); range.selectNode(el);
+  window.getSelection().removeAllRanges(); window.getSelection().addRange(range);
+  document.execCommand('copy'); window.getSelection().removeAllRanges();
+  const btn = document.getElementById('btn-copy');
+  btn.textContent = '¡Copiado!'; btn.classList.add('copied');
+  setTimeout(()=>{ btn.textContent='Copiar'; btn.classList.remove('copied'); }, 2000);
+}
+
+// ── GMAIL OAUTH ───────────────────────────────────────────────────────────────
+function conectarGmail() {
+  if (accessToken) { desconectarGmail(); return; }
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: CLIENT_ID,
+    scope: SCOPES,
+    callback: (resp) => {
+      if (resp.error) { setGmailStatus('error', 'Error: ' + resp.error); return; }
+      accessToken = resp.access_token;
+      setGmailStatus('connected', 'Conectado a Gmail ✓');
+      document.getElementById('btn-gmail').textContent = '✓ Desconectar Gmail';
+      document.getElementById('btn-gmail').classList.add('connected');
+      if (htmlCorreo) document.getElementById('btn-drafts').disabled = false;
+    }
+  });
+  tokenClient.requestAccessToken();
+}
+
+function desconectarGmail() {
+  google.accounts.oauth2.revoke(accessToken, ()=>{});
+  accessToken = null;
+  setGmailStatus('', 'No conectado a Gmail');
+  document.getElementById('btn-gmail').innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg> Conectar Gmail';
+  document.getElementById('btn-gmail').classList.remove('connected');
+  document.getElementById('btn-drafts').disabled = true;
+}
+
+function setGmailStatus(type, msg) {
+  const dot = document.getElementById('gmail-dot');
+  dot.className = 'gmail-dot' + (type ? ' ' + type : '');
+  document.getElementById('gmail-status-text').textContent = msg;
+}
+
+// ── CREAR BORRADOR EN GMAIL ───────────────────────────────────────────────────
+async function crearBorrador() {
+  if (!accessToken) { alert('Primero conecta Gmail.'); return; }
+  if (!htmlCorreo) { alert('Primero genera la vista previa.'); return; }
+
+  const emailDest = g('f-email-dest');
+  const num = g('f-num');
+  const tipo = g('f-tipo');
+  const dest = g('f-destinatario');
+  const asunto = `Solicitud de Garantía ${num} — ${tipo}`;
+
+  const progress = document.getElementById('progress-bar');
+  const fill = document.getElementById('progress-fill');
+  const txt = document.getElementById('progress-text');
+  progress.classList.add('show');
+  txt.textContent = `Creando borrador ${num}...`;
+  fill.style.width = '50%';
+
+  try {
+    const email = [
+      `To: ${emailDest || ''}`,
+      `Subject: =?UTF-8?B?${btoa(unescape(encodeURIComponent(asunto)))}?=`,
+      'MIME-Version: 1.0',
+      'Content-Type: text/html; charset=UTF-8',
+      '',
+      htmlCorreo
+    ].join('\r\n');
+
+    const encoded = btoa(unescape(encodeURIComponent(email)))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+    const resp = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/drafts', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: { raw: encoded } })
+    });
+
+    if (!resp.ok) throw new Error('Error ' + resp.status);
+
+    fill.style.width = '100%';
+    txt.textContent = `✅ Borrador "${num}" creado en Gmail`;
+    setTimeout(() => { progress.classList.remove('show'); fill.style.width = '0%'; }, 3000);
+
+  } catch(err) {
+    txt.textContent = '❌ Error: ' + err.message;
+    fill.style.width = '0%';
+    setTimeout(() => progress.classList.remove('show'), 4000);
+  }
+}
+</script>
+</body>
+</html>
